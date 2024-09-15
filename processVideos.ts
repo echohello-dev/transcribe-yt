@@ -20,7 +20,6 @@ const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
-// {{ edit_2: Read video URLs from config.yaml }}
 const configPath = path.join(__dirname, 'config.yaml');
 const config = yaml.load(fs.readFileSync(configPath, 'utf8')) as { videoUrls: string[] };
 const VIDEO_URLS: string[] = config.videoUrls;
@@ -42,6 +41,12 @@ async function downloadAudio(videoUrl: string): Promise<{ audioPath: string; vid
   const videoTitle = info.videoDetails.title.replace(/[^a-z0-9 \-_]/gi, '');
   const videoAuthor = info.videoDetails.author.name.replace(/[^a-z0-9 \-_]/gi, '');
   const output = path.join(AUDIO_DIR, `${videoTitle} - ${videoAuthor}.mp3`);
+
+  if (await fs.pathExists(output)) {
+    console.log(`MP3 file already exists for "${videoTitle}". Skipping download.`);
+    return { audioPath: output, videoTitle, videoAuthor };
+  }
+
   const audioStream = ytdl(videoUrl, { filter: 'audioonly' });
 
   return new Promise((resolve, reject) => {
@@ -118,8 +123,6 @@ async function processVideo(videoUrl: string, progressBar: SingleBar) {
     progressBar.update(100, { videoId: `Completed: ${videoTitle}` });
     console.log(`Transcript saved to ${transcriptPath}`);
 
-    // Clean up audio file
-    await fs.remove(audioPath);
     progressBar.stop();
   } catch (err) {
     console.error(`An error occurred while processing ${videoUrl}:`, err);
@@ -136,10 +139,11 @@ async function main() {
     hideCursor: true,
   }, cliProgress.Presets.shades_classic);
 
-  for (const videoUrl of VIDEO_URLS) {
-    await processVideo(videoUrl, progressBar);
-  }
+  progressBar.start(VIDEO_URLS.length * 100, 0);
 
+  await Promise.all(VIDEO_URLS.map(videoUrl => processVideo(videoUrl, progressBar)));
+
+  progressBar.stop();
   console.log('All videos have been processed.');
 }
 
