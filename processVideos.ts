@@ -6,6 +6,7 @@ import ffmpeg from 'fluent-ffmpeg';
 import OpenAI from 'openai';
 import cliProgress, { SingleBar } from 'cli-progress';
 import yaml from 'js-yaml';
+import pLimit from 'p-limit';
 
 dotenv.config();
 
@@ -21,15 +22,17 @@ const openai = new OpenAI({
 });
 
 const configPath = path.join(__dirname, 'config.yaml');
-const config = yaml.load(fs.readFileSync(configPath, 'utf8')) as { videoUrls: string[] };
+const config = yaml.load(fs.readFileSync(configPath, 'utf8')) as { videoUrls: string[]; proxies: string[] };
 const VIDEO_URLS: string[] = config.videoUrls;
 
 const TRANSCRIPTS_DIR = path.join(__dirname, 'transcripts');
 const AUDIO_DIR = path.join(__dirname, 'audio');
+const CHUNKS_DIR = path.join(__dirname, 'chunks');
 
 // Ensure directories exist
 fs.ensureDirSync(TRANSCRIPTS_DIR);
 fs.ensureDirSync(AUDIO_DIR);
+fs.ensureDirSync(CHUNKS_DIR);
 
 /**
  * Downloads YouTube audio and converts it to MP3 with a filename based on video title and author.
@@ -67,6 +70,52 @@ async function downloadAudio(videoUrl: string): Promise<{ audioPath: string; vid
 }
 
 /**
+ * Splits the audio file into smaller chunks under the specified size limit.
+ * @param filePath - Path to the original MP3 file.
+ * @param videoTitle - Title of the video (used for chunk directory).
+ * @param videoId - ID of the video (used for chunk directory).
+ * @param chunkSizeMB - Maximum size for each chunk in MB.
+ * @returns Array of chunk file paths.
+ */
+async function splitAudio(filePath: string, videoTitle: string, videoId: string, chunkSizeMB: number = 25): Promise<string[]> {
+  const stats = await fs.stat(filePath);
+  const fileSize = stats.size;
+  const chunkSize = chunkSizeMB * 1024 * 1024; // Convert MB to bytes
+  const numberOfChunks = Math.ceil(fileSize / chunkSize);
+  const chunks: string[] = [];
+
+  if (numberOfChunks <= 1) {
+    return [filePath];
+  }
+
+  // Create a unique directory for chunks of this video
+  const videoChunksDir = path.join(CHUNKS_DIR, `${videoTitle}-${videoId}`);
+  await fs.ensureDir(videoChunksDir);
+
+  return new Promise((resolve, reject) => {
+    ffmpeg(filePath)
+      .outputOptions([
+        `-f segment`,
+        `-segment_time ${(fileSize / chunkSize) * 60}`, // Estimate segment time
+        `-reset_timestamps 1`,
+      ])
+      .output(path.join(videoChunksDir, 'chunk-%03d.mp3'))
+      .on('end', async () => {
+        const files = await fs.readdir(videoChunksDir);
+        const chunkFiles = files
+          .filter(file => file.startsWith('chunk-') && file.endsWith('.mp3'))
+          .map(file => path.join(videoChunksDir, file))
+          .sort(); // Ensure chunks are ordered
+        resolve(chunkFiles);
+      })
+      .on('error', (err: Error) => {
+        reject(err);
+      })
+      .run();
+  });
+}
+
+/**
  * Transcribes audio using OpenAI Whisper API.
  * @param filePath - Path to the MP3 file.
  * @returns Transcribed text.
@@ -90,15 +139,20 @@ async function transcribeAudio(filePath: string): Promise<string> {
 }
 
 /**
- * Processes a single YouTube video: downloads audio and transcribes it.
+ * Processes a single YouTube video: downloads audio, splits if necessary, and transcribes it.
  * @param videoUrl - The YouTube video URL.
- * @param progressBar - The progress bar instance.
  */
-async function processVideo(videoUrl: string, progressBar: SingleBar) {
+async function processVideo(videoUrl: string) {
+  const progressBar = new cliProgress.SingleBar({
+    format: '{videoId} |{bar}| {percentage}% ',
+    hideCursor: true,
+  }, cliProgress.Presets.shades_classic);
+
   try {
     const info = await ytdl.getInfo(videoUrl);
     const videoTitle = info.videoDetails.title.replace(/[^a-z0-9 \-_]/gi, '');
     const videoAuthor = info.videoDetails.author.name.replace(/[^a-z0-9 \-_]/gi, '');
+    const videoId = info.videoDetails.videoId;
     const transcriptPath = path.join(TRANSCRIPTS_DIR, `${videoTitle} - ${videoAuthor}.txt`);
 
     if (await fs.pathExists(transcriptPath)) {
@@ -111,17 +165,29 @@ async function processVideo(videoUrl: string, progressBar: SingleBar) {
     // Download audio
     progressBar.update(10, { videoId: `Downloading audio` });
     const { audioPath } = await downloadAudio(videoUrl);
-    progressBar.update(50, { videoId: `Downloaded: ${videoTitle}` });
+    progressBar.update(30, { videoId: `Downloaded: ${videoTitle}` });
 
-    // Transcribe audio
-    progressBar.update(60, { videoId: `Transcribing: ${videoTitle}` });
-    const transcript = await transcribeAudio(audioPath);
-    progressBar.update(90, { videoId: `Transcribed: ${videoTitle}` });
+    // Split audio if necessary
+    progressBar.update(40, { videoId: `Splitting audio` });
+    const chunks = await splitAudio(audioPath, videoTitle, videoId);
+    progressBar.update(50, { videoId: `Audio split into ${chunks.length} chunks` });
+
+    // Transcribe each chunk
+    let fullTranscript = '';
+    for (let i = 0; i < chunks.length; i++) {
+      progressBar.update(50 + (i / chunks.length) * 40, { videoId: `Transcribing chunk ${i + 1}` });
+      const transcript = await transcribeAudio(chunks[i]);
+      fullTranscript += transcript + ' ';
+    }
 
     // Save transcript
-    await fs.writeFile(transcriptPath, transcript.trim());
+    progressBar.update(95, { videoId: `Saving transcript` });
+    await fs.writeFile(transcriptPath, fullTranscript.trim());
     progressBar.update(100, { videoId: `Completed: ${videoTitle}` });
     console.log(`Transcript saved to ${transcriptPath}`);
+
+    // Cleanup chunks
+    await fs.remove(path.join(CHUNKS_DIR, `${videoTitle}-${videoId}`));
 
     progressBar.stop();
   } catch (err) {
@@ -134,16 +200,11 @@ async function processVideo(videoUrl: string, progressBar: SingleBar) {
  * Main function to process all videos.
  */
 async function main() {
-  const progressBar = new cliProgress.SingleBar({
-    format: '{videoId} |{bar}| {percentage}% ',
-    hideCursor: true,
-  }, cliProgress.Presets.shades_classic);
+  const CONCURRENCY_LIMIT = 3;
+  const limit = pLimit(CONCURRENCY_LIMIT);
 
-  progressBar.start(VIDEO_URLS.length * 100, 0);
+  await Promise.all(VIDEO_URLS.map(videoUrl => limit(() => processVideo(videoUrl))));
 
-  await Promise.all(VIDEO_URLS.map(videoUrl => processVideo(videoUrl, progressBar)));
-
-  progressBar.stop();
   console.log('All videos have been processed.');
 }
 
