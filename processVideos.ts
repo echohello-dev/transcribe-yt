@@ -4,9 +4,10 @@ import path from 'path';
 import ytdl from '@distube/ytdl-core';
 import ffmpeg from 'fluent-ffmpeg';
 import OpenAI from 'openai';
-import cliProgress, { SingleBar } from 'cli-progress';
+import cliProgress from 'cli-progress';
 import yaml from 'js-yaml';
 import pLimit from 'p-limit';
+import * as art from 'ascii-art'; // Updated import statement
 
 dotenv.config();
 
@@ -205,6 +206,8 @@ async function main() {
 
   await Promise.all(VIDEO_URLS.map(videoUrl => limit(() => processVideo(videoUrl))));
 
+  const rendered = await art.font('Success!', 'Doom').toPromise();
+  console.log(rendered);
   console.log('All videos have been processed.');
 }
 
