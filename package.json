@@ -1,0 +1,30 @@
+{
+  "name": "transcribe-yt",
+  "version": "1.0.0",
+  "description": "A simple script to download YouTube videos, extract audio, and transcribe them using OpenAI's API.",
+  "main": "processVideos.ts",
+  "scripts": {
+    "start": "tsx processVideos.ts",
+    "build": "tsc"
+  },
+  "packageManager": "yarn@4.3.1",
+  "dependencies": {
+    "@distube/ytdl-core": "^4.14.4",
+    "cli-progress": "^3.12.0",
+    "dotenv": "^16.4.5",
+    "fluent-ffmpeg": "^2.1.3",
+    "fs-extra": "^11.2.0",
+    "handbrake-js": "^7.0.0",
+    "js-yaml": "^4.1.0",
+    "openai": "^4.21.0",
+    "tsx": "^4.19.1",
+    "ytdl-core": "^4.11.5"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/cli-progress": "^3.11.6",
+    "@types/fluent-ffmpeg": "^2.1.26",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

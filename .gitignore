@@ -1,0 +1,41 @@
+# Node modules
+/node_modules/
+
+transcripts/
+audio/
+config.yaml
+
+# Yarn v4 Plug'n'Play files
+.pnp.*
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# Optional: If you're using TypeScript
+*.tsbuildinfo
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependency directories
+jspm_packages/
+
+# Optional: Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Optional: OS-specific files
+.DS_Store
+Thumbs.db
+
+# Optional: Testing output
+coverage/
