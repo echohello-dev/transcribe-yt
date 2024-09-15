@@ -65,6 +65,7 @@ The script will:
 ## Dependencies
 
 Key dependencies include:
+
 - `@distube/ytdl-core`: For downloading YouTube videos
 - `fluent-ffmpeg`: For audio processing
 - `openai`: For interacting with the OpenAI API
