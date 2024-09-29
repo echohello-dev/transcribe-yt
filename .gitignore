@@ -40,3 +40,4 @@ Thumbs.db
 
 # Optional: Testing output
 coverage/
+.env
