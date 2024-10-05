@@ -97,17 +97,31 @@ async function splitAudio(filePath: string, videoTitle: string, videoId: string,
     ffmpeg(filePath)
       .outputOptions([
         `-f segment`,
-        `-segment_time ${(fileSize / chunkSize) * 60}`, // Estimate segment time
+        `-segment_time ${(chunkSizeMB * 60)}`, // Use fixed segment time in seconds
         `-reset_timestamps 1`,
       ])
       .output(path.join(videoChunksDir, 'chunk-%03d.mp3'))
       .on('end', async () => {
-        const files = await fs.readdir(videoChunksDir);
-        const chunkFiles = files
-          .filter(file => file.startsWith('chunk-') && file.endsWith('.mp3'))
-          .map(file => path.join(videoChunksDir, file))
-          .sort(); // Ensure chunks are ordered
-        resolve(chunkFiles);
+        try {
+          const files = await fs.readdir(videoChunksDir);
+          const chunkFiles = files
+            .filter(file => file.startsWith('chunk-') && file.endsWith('.mp3'))
+            .map(file => path.join(videoChunksDir, file))
+            .sort((a, b) => {
+              const aNum = parseInt(a.match(/\d+/)?.[0] || '0');
+              const bNum = parseInt(b.match(/\d+/)?.[0] || '0');
+              return aNum - bNum;
+            });
+
+          if (chunkFiles.length === 0) {
+            throw new Error('No chunks were created');
+          }
+
+          console.log(`Created ${chunkFiles.length} chunks for ${videoTitle}`);
+          resolve(chunkFiles);
+        } catch (error) {
+          reject(error);
+        }
       })
       .on('error', (err: Error) => {
         reject(err);
