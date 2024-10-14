@@ -131,26 +131,31 @@ async function splitAudio(filePath: string, videoTitle: string, videoId: string,
 }
 
 /**
- * Transcribes audio using OpenAI Whisper API.
+ * Transcribes audio using OpenAI Whisper API with retry mechanism.
  * @param filePath - Path to the MP3 file.
+ * @param maxRetries - Maximum number of retry attempts.
+ * @param retryDelay - Delay between retries in milliseconds.
  * @returns Transcribed text.
  */
-async function transcribeAudio(filePath: string): Promise<string> {
-  try {
-    const fileStream = fs.createReadStream(filePath);
-    const response = await openai.audio.transcriptions.create({
-      file: fileStream,
-      model: 'whisper-1',
-    });
-    return response.text;
-  } catch (error: any) {
-    if (error.response) {
-      console.error(`Error transcribing ${filePath}:`, error.response.data);
-    } else {
-      console.error(`Error transcribing ${filePath}:`, error.message);
+async function transcribeAudio(filePath: string, maxRetries = 3, retryDelay = 5000): Promise<string> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const fileStream = fs.createReadStream(filePath);
+      const response = await openai.audio.transcriptions.create({
+        file: fileStream,
+        model: 'whisper-1',
+      });
+      return response.text;
+    } catch (error: any) {
+      if (attempt === maxRetries) {
+        console.error(`Error transcribing ${filePath} after ${maxRetries} attempts:`, error.message);
+        return '';
+      }
+      console.warn(`Attempt ${attempt} failed for ${filePath}. Retrying in ${retryDelay / 1000} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
     }
-    return '';
   }
+  return ''; // This line should never be reached, but TypeScript requires it
 }
 
 /**
@@ -192,7 +197,11 @@ async function processVideo(videoUrl: string) {
     for (let i = 0; i < chunks.length; i++) {
       progressBar.update(50 + (i / chunks.length) * 40, { videoId: `Transcribing chunk ${i + 1}` });
       const transcript = await transcribeAudio(chunks[i]);
-      fullTranscript += transcript + ' ';
+      if (transcript) {
+        fullTranscript += transcript + ' ';
+      } else {
+        console.warn(`Failed to transcribe chunk ${i + 1} for ${videoTitle} after multiple attempts.`);
+      }
     }
 
     // Save transcript
