@@ -63,26 +63,30 @@ async function downloadAudio(
     return { audioPath: output, videoTitle, videoAuthor };
   }
 
-  const audioStream = ytdl(videoUrl, { filter: "audioonly" });
+  // Use the highest quality audio-only format
+  const format = ytdl.chooseFormat(info.formats, { quality: "highestaudio" });
 
   return new Promise((resolve, reject) => {
-    ffmpeg()
-      .input(audioStream)
-      .audioBitrate(128)
-      .format("mp3")
-      .on("error", (err: Error) => {
-        console.error(
-          `Error during conversion for ${videoTitle}: ${err.message}`,
-        );
-        reject(err);
-      })
-      .on("end", () => {
-        console.log(
-          `Download and conversion to MP3 completed for ${videoTitle}.`,
-        );
+    ytdl(videoUrl, {
+      format: format,
+      requestOptions: {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        },
+      },
+    })
+      .pipe(fs.createWriteStream(output))
+      .on("finish", () => {
+        console.log(`Download completed for ${videoTitle}.`);
         resolve({ audioPath: output, videoTitle, videoAuthor });
       })
-      .save(output);
+      .on("error", (err) => {
+        console.error(
+          `Error during download for ${videoTitle}: ${err.message}`,
+        );
+        reject(err);
+      });
   });
 }
 
@@ -104,7 +108,6 @@ async function splitAudio(
   const fileSize = stats.size;
   const chunkSize = chunkSizeMB * 1024 * 1024; // Convert MB to bytes
   const numberOfChunks = Math.ceil(fileSize / chunkSize);
-  const chunks: string[] = [];
 
   if (numberOfChunks <= 1) {
     return [filePath];
