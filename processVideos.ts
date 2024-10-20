@@ -8,8 +8,17 @@ import cliProgress from "cli-progress";
 import yaml from "js-yaml";
 import pLimit from "p-limit";
 import * as art from "ascii-art"; // Updated import statement
+import { AssemblyAI } from "assemblyai";
 
 dotenv.config();
+
+const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
+if (!ASSEMBLYAI_API_KEY) {
+  console.error(
+    "Error: ASSEMBLYAI_API_KEY is not set in the environment variables.",
+  );
+  process.exit(1);
+}
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 if (!OPENAI_API_KEY) {
@@ -24,12 +33,20 @@ const openai = new OpenAI({
   apiKey: OPENAI_API_KEY,
 });
 
+// Initialize AssemblyAI client
+const assemblyai = new AssemblyAI({
+  apiKey: ASSEMBLYAI_API_KEY,
+});
+
 const configPath = path.join(__dirname, "config.yaml");
 const config = yaml.load(fs.readFileSync(configPath, "utf8")) as {
   videoUrls: string[];
   proxies: string[];
+  transcriptionService: "openai" | "assemblyai";
 };
 const VIDEO_URLS: string[] = config.videoUrls;
+const TRANSCRIPTION_SERVICE: "openai" | "assemblyai" =
+  config.transcriptionService;
 
 const TRANSCRIPTS_DIR = path.join(__dirname, "transcripts");
 const AUDIO_DIR = path.join(__dirname, "audio");
@@ -157,13 +174,24 @@ async function splitAudio(
 }
 
 /**
- * Transcribes audio using OpenAI Whisper API with retry mechanism.
+ * Transcribes audio using the selected transcription service.
  * @param filePath - Path to the MP3 file.
- * @param maxRetries - Maximum number of retry attempts.
- * @param retryDelay - Delay between retries in milliseconds.
  * @returns Transcribed text.
  */
-async function transcribeAudio(
+async function transcribeAudio(filePath: string): Promise<string> {
+  if (TRANSCRIPTION_SERVICE === "openai") {
+    return transcribeWithOpenAI(filePath);
+  } else {
+    return transcribeWithAssemblyAI(filePath);
+  }
+}
+
+/**
+ * Transcribes audio using OpenAI Whisper API with retry mechanism.
+ * @param filePath - Path to the MP3 file.
+ * @returns Transcribed text.
+ */
+async function transcribeWithOpenAI(
   filePath: string,
   maxRetries = 3,
   retryDelay = 5000,
@@ -194,7 +222,27 @@ async function transcribeAudio(
 }
 
 /**
- * Processes a single YouTube video: downloads audio, splits if necessary, and transcribes it.
+ * Transcribes audio using AssemblyAI.
+ * @param filePath - Path to the MP3 file.
+ * @returns Transcribed text.
+ */
+async function transcribeWithAssemblyAI(filePath: string): Promise<string> {
+  try {
+    const transcript = await assemblyai.transcripts.transcribe({
+      audio: filePath,
+    });
+    return transcript.text ?? "";
+  } catch (error: any) {
+    console.error(
+      `Error transcribing ${filePath} with AssemblyAI:`,
+      error.message,
+    );
+    return "";
+  }
+}
+
+/**
+ * Processes a single YouTube video: downloads audio and transcribes it.
  * @param videoUrl - The YouTube video URL.
  */
 async function processVideo(videoUrl: string) {
@@ -233,27 +281,33 @@ async function processVideo(videoUrl: string) {
     const { audioPath } = await downloadAudio(videoUrl);
     progressBar.update(30, { videoId: `Downloaded: ${videoTitle}` });
 
-    // Split audio if necessary
-    progressBar.update(40, { videoId: `Splitting audio` });
-    const chunks = await splitAudio(audioPath, videoTitle, videoId);
-    progressBar.update(50, {
-      videoId: `Audio split into ${chunks.length} chunks`,
-    });
-
-    // Transcribe each chunk
+    // Transcribe audio
+    progressBar.update(40, { videoId: `Transcribing audio` });
     let fullTranscript = "";
-    for (let i = 0; i < chunks.length; i++) {
-      progressBar.update(50 + (i / chunks.length) * 40, {
-        videoId: `Transcribing chunk ${i + 1}`,
+    if (TRANSCRIPTION_SERVICE === "openai") {
+      // Split audio if using OpenAI (due to file size limitations)
+      const chunks = await splitAudio(audioPath, videoTitle, videoId);
+      progressBar.update(50, {
+        videoId: `Audio split into ${chunks.length} chunks`,
       });
-      const transcript = await transcribeAudio(chunks[i]);
-      if (transcript) {
-        fullTranscript += transcript + " ";
-      } else {
-        console.warn(
-          `Failed to transcribe chunk ${i + 1} for ${videoTitle} after multiple attempts.`,
-        );
+
+      // Transcribe each chunk
+      for (let i = 0; i < chunks.length; i++) {
+        progressBar.update(50 + (i / chunks.length) * 40, {
+          videoId: `Transcribing chunk ${i + 1}`,
+        });
+        const transcript = await transcribeAudio(chunks[i]);
+        if (transcript) {
+          fullTranscript += transcript + " ";
+        } else {
+          console.warn(
+            `Failed to transcribe chunk ${i + 1} for ${videoTitle}.`,
+          );
+        }
       }
+    } else {
+      // Use AssemblyAI for transcription (no chunking required)
+      fullTranscript = await transcribeAudio(audioPath);
     }
 
     // Save transcript
