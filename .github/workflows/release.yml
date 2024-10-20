@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.asdf
+            .tool-versions
+            ~/.yarn/cache
+          key: ${{ runner.os }}-${{ hashFiles('.tool-versions') }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}
+            ${{ runner.os }}-${{ hashFiles('.tool-versions') }}
+            ${{ runner.os }}-${{ hashFiles('.tool-versions') }}-${{ hashFiles('yarn.lock') }}
+
+      - uses: asdf-vm/actions/install@v3
+
+      - run: make install
+
+      - run: make release
