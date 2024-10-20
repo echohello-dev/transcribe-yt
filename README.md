@@ -1,13 +1,14 @@
 # Transcribe-YT
 
-Transcribe-YT is a Node.js application that downloads YouTube videos, extracts their audio, and transcribes them using OpenAI's Whisper API.
+Transcribe-YT is a Node.js application that downloads YouTube videos, extracts their audio, and transcribes them using OpenAI's Whisper API or AssemblyAI.
 
 ## Prerequisites
 
-- Node.js (v20 or later recommended)
+- Node.js (v18.19.1 or later recommended)
 - Yarn v4
 - FFmpeg installed on your system
 - An OpenAI API key
+- An AssemblyAI API key
 
 ## Installation
 
@@ -28,14 +29,15 @@ Transcribe-YT is a Node.js application that downloads YouTube videos, extracts t
    ```
    Then edit `config.yaml` to include the YouTube video URLs you want to transcribe.
 
-4. Create a `.env` file in the root directory and add your OpenAI API key:
+4. Create a `.env` file in the root directory and add your API keys:
    ```
-   OPENAI_API_KEY=your_api_key_here
+   OPENAI_API_KEY=your_openai_api_key_here
+   ASSEMBLYAI_API_KEY=your_assemblyai_api_key_here
    ```
 
 ## Usage
 
-1. Ensure your `config.yaml` file contains the YouTube video URLs you want to transcribe.
+1. Ensure your `config.yaml` file contains the YouTube video URLs you want to transcribe and specifies the transcription service to use.
 
 2. Run the application:
    ```
@@ -45,14 +47,14 @@ Transcribe-YT is a Node.js application that downloads YouTube videos, extracts t
 The script will:
 - Download the audio from each YouTube video
 - Convert the audio to MP3 format
-- Transcribe the audio using OpenAI's Whisper API
+- Transcribe the audio using either OpenAI's Whisper API or AssemblyAI (as specified in config.yaml)
 - Save the transcriptions in the `transcripts` directory
 - Clean up the temporary audio files
 
 ## Configuration
 
-- `config.yaml`: List the YouTube video URLs you want to transcribe.
-- `.env`: Store your OpenAI API key.
+- `config.yaml`: List the YouTube video URLs you want to transcribe and specify the transcription service to use.
+- `.env`: Store your OpenAI and AssemblyAI API keys.
 
 ## Project Structure
 
@@ -69,6 +71,7 @@ Key dependencies include:
 - `@distube/ytdl-core`: For downloading YouTube videos
 - `fluent-ffmpeg`: For audio processing
 - `openai`: For interacting with the OpenAI API
+- `assemblyai`: For interacting with the AssemblyAI API
 - `js-yaml`: For parsing the YAML configuration file
 - `tsx`: For running TypeScript files directly
 
